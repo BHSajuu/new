@@ -176,12 +176,18 @@ const ChatContainer = () => {
       </div>
     );
   }
+ 
+    // —— Dedupe here ——
+  const uniqueMessages = messages.filter(
+    (m, i, a) => a.findIndex(x => x._id === m._id) === i
+  );
+
 
   return (
     <div className="flex-1 flex flex-col overflow-auto md:my-0">
       <ChatHeader />
       <div className="flex-1 overflow-y-scroll pt-8 pb-20 md:mb-0 px-4 md:p-4 space-y-4 md:relative">
-        {messages.map((message, idx) => (
+        {uniqueMessages.map((message, idx) => (
           <div
             key={`${message._id}-${idx}`}
             onMouseEnter={() => setHover(message._id)}
