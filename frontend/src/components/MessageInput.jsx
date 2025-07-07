@@ -2,7 +2,7 @@ import { Image, Send, X, Mic, StopCircle } from "lucide-react";
 import { useRef, useState, useEffect } from "react";
 import toast from "react-hot-toast";
 import { useChatStore } from "../store/useChatStore";
-import { useTranslationStore } from "../store/useTranslationStore"; // Added translation store
+import { useTranslationStore } from "../store/useTranslationStore";
 import { useReactMediaRecorder } from "react-media-recorder";
 import CustomAudioPlayer from "./CustomAudioPlayer";
 
@@ -15,11 +15,10 @@ const MessageInput = () => {
   const fileInputRef = useRef(null);
   const { sendMessage } = useChatStore();
   
-  // Translation functionality
+  // Translation functionality - removed translateMessage as it's now handled in backend
   const { 
     translationEnabled, 
-    preferredLanguage, 
-    translateMessage 
+    preferredLanguage
   } = useTranslationStore();
 
   const {
@@ -84,19 +83,9 @@ const MessageInput = () => {
         });
       }
 
-      let messageText = text.trim();
-      let senderText = "";
-      // Auto-translate outgoing message if translation is enabled
-      if (translationEnabled && messageText && preferredLanguage !== "English") {
-        const translatedText = await translateMessage(messageText, preferredLanguage);
-        if (translatedText) {
-          senderText = translatedText;
-        }
-      }
-
+      // Send message with original text - translation will be handled in backend
       await sendMessage({
-        text: messageText,
-        sText: senderText,
+        text: text.trim(),
         image: imagePreview,
         audio: audioData,
       });

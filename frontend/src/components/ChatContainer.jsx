@@ -2,11 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { formatMessageTime } from "../lib/utils";
 import { useAuthStore } from "../store/useAuthStore";
 import { useChatStore } from "../store/useChatStore";
-import { useTranslationStore } from "../store/useTranslationStore"; // Added translation store
+import { useTranslationStore } from "../store/useTranslationStore";
 import ChatHeader from "./ChatHeader";
 import MessageInput from "./MessageInput";
 import MessageSkeleton from "./skeletons/MessageSkeleton";
-import { Check, Pencil, Trash2, X, Languages } from "lucide-react"; // Added Languages icon
+import { Check, Pencil, Trash2, X, Languages } from "lucide-react";
 import CustomAudioPlayer from "./CustomAudioPlayer";
 import Linkify from "react-linkify";
 import ConfirmationModal from "./ConfirmationModal";
@@ -21,15 +21,14 @@ const ChatContainer = () => {
     unsubscribeFromMessages,
     deleteMessage,
     editMessageText,
+    updateReceiverText, // New function to update receiver text
   } = useChatStore();
   const { authUser } = useAuthStore();
   
   // Translation store
   const { 
     translationEnabled, 
-    preferredLanguage, 
-    translateMessage, 
-    isTranslating 
+    preferredLanguage,
   } = useTranslationStore();
   
   const messageEndRef = useRef(null);
@@ -40,9 +39,8 @@ const ChatContainer = () => {
   const [modalOpen, setModalOpen] = useState(false);
   const [currentLink, setCurrentLink] = useState("");
   
-  // Translation state for each message
-  const [translatedMessages, setTranslatedMessages] = useState({});
-  const [translatingMessageId, setTranslatingMessageId] = useState(null);
+  // Track which messages are being translated
+  const [translatingMessages, setTranslatingMessages] = useState(new Set());
 
   useEffect(() => {
     getMessages(selectedUser._id);
@@ -61,17 +59,28 @@ const ChatContainer = () => {
     }
   }, [messages]);
 
-  // Auto-translate incoming messages if translation is enabled
+  // Auto-translate new incoming messages for receiver
   useEffect(() => {
     if (translationEnabled && messages.length > 0) {
       const lastMessage = messages[messages.length - 1];
       
-      // Only translate messages from other users (not from current user)
-      if (lastMessage.senderId !== authUser._id && lastMessage.text && !translatedMessages[lastMessage._id]) {
-        handleTranslateMessage(lastMessage._id, lastMessage.text);
+      // Only translate messages from other users (not from current user) and only if it's a new message
+      if (lastMessage.senderId !== authUser._id && 
+          lastMessage.commonText && 
+          !lastMessage.receiverText &&
+          !translatingMessages.has(lastMessage._id)) {
+        
+        // Check if this is a new message (created within last 5 seconds)
+        const messageTime = new Date(lastMessage.createdAt);
+        const now = new Date();
+        const timeDiff = (now - messageTime) / 1000; // difference in seconds
+        
+        if (timeDiff <= 5) { // Consider it a new message if created within 5 seconds
+          handleTranslateForReceiver(lastMessage._id);
+        }
       }
     }
-  }, [messages, translationEnabled, preferredLanguage]);
+  }, [messages, translationEnabled, authUser._id]);
 
   const handleDeleteMessage = async (messageId) => {
     try {
@@ -91,22 +100,25 @@ const ChatContainer = () => {
     }
   };
 
-  // Handle manual translation of a specific message
-  const handleTranslateMessage = async (messageId, text) => {
-    if (!text || translatedMessages[messageId]) return;
+  // Handle translation for receiver (update receiverText in database)
+  const handleTranslateForReceiver = async (messageId) => {
+    if (translatingMessages.has(messageId)) return;
     
-    setTranslatingMessageId(messageId);
+    setTranslatingMessages(prev => new Set([...prev, messageId]));
     
-    const translatedText = await translateMessage(text, preferredLanguage);
-    
-    if (translatedText) {
-      setTranslatedMessages(prev => ({
-        ...prev,
-        [messageId]: translatedText
-      }));
+    try {
+      await updateReceiverText(messageId, authUser._id);
+      // Refresh messages to get updated receiverText
+      await getMessages(selectedUser._id);
+    } catch (error) {
+      console.error("Failed to translate message for receiver:", error);
+    } finally {
+      setTranslatingMessages(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(messageId);
+        return newSet;
+      });
     }
-    
-    setTranslatingMessageId(null);
   };
 
   const openJoinModal = (link) => {
@@ -117,6 +129,42 @@ const ChatContainer = () => {
   const handleJoin = () => {
     window.open(currentLink, "_blank");
     setModalOpen(false);
+  };
+
+  // Function to determine which text to display for a message
+  const getDisplayText = (message) => {
+    const isCurrentUserSender = message.senderId === authUser._id;
+    
+    if (isCurrentUserSender) {
+      // Current user is the sender
+      if (translationEnabled && message.senderText) {
+        return message.senderText; // Display translated text in sender's preferred language
+      }
+      return message.commonText; // Display original text
+    } else {
+      // Current user is the receiver
+      if (!translationEnabled) {
+        return message.commonText; // Display original text if translation is off
+      }
+      
+      if (message.receiverText) {
+        return message.receiverText; // Display translated text in receiver's preferred language
+      }
+      
+      // If translation is on but receiverText doesn't exist, show original text
+      return message.commonText;
+    }
+  };
+
+  // Function to check if translation indicator should be shown
+  const shouldShowTranslationIndicator = (message) => {
+    const isCurrentUserSender = message.senderId === authUser._id;
+    
+    if (isCurrentUserSender) {
+      return translationEnabled && message.senderText && message.senderText !== message.commonText;
+    } else {
+      return translationEnabled && message.receiverText && message.receiverText !== message.commonText;
+    }
   };
 
   if (isMessagesLoading) {
@@ -151,14 +199,17 @@ const ChatContainer = () => {
                 } flex items-center`}
               >
                 <div className="flex gap-2">
-                  {/* Translation button - only show for messages from other users  */}
-                  {message.senderId !== authUser._id && message.commonText && (
+                  {/* Translation button - only show for old messages from other users that don't have receiverText */}
+                  {message.senderId !== authUser._id && 
+                   message.commonText && 
+                   translationEnabled && 
+                   !message.receiverText && (
                     <Languages
-                      className={`w-5 h-5 cursor-pointer hover:scale-110 transition-transform ${
-                        translatedMessages[message._id] ? 'text-green-500' : 'text-blue-500'
-                      } ${translatingMessageId === message._id ? 'animate-spin' : ''}`}
-                      onClick={() => handleTranslateMessage(message._id, message.commonText)}
-                      title={translatedMessages[message._id] ? 'Translated' : 'Translate message'}
+                      className={`w-5 h-5 cursor-pointer hover:scale-110 transition-transform text-blue-500 ${
+                        translatingMessages.has(message._id) ? 'animate-spin' : ''
+                      }`}
+                      onClick={() => handleTranslateForReceiver(message._id)}
+                      title="Translate message"
                     />
                   )}
                   
@@ -167,7 +218,7 @@ const ChatContainer = () => {
                       className="w-5 h-5 text-blue-500 cursor-pointer hover:scale-110 transition-transform"
                       onClick={() => {
                         setEditingMessageId(message._id);
-                        setEditedText(message.text);
+                        setEditedText(message.commonText); // Edit the original text
                       }}
                     />
                   )}
@@ -237,7 +288,7 @@ const ChatContainer = () => {
                 </div>
               ) : (
                 <div>
-                  {/* Show translated text if available, otherwise show original */}
+                  {/* Display the appropriate text based on translation settings */}
                   <Linkify
                     componentDecorator={(href, text, key) => {
                       const isCallLink = href.includes("/call/");
@@ -266,15 +317,28 @@ const ChatContainer = () => {
                     }}
                   >
                     <p>
-                      {translatedMessages[message._id] || message.text}
+                      {getDisplayText(message)}
                     </p>
                   </Linkify>
                   
                   {/* Show translation indicator */}
-                  {translatedMessages[message._id] && (
+                  {shouldShowTranslationIndicator(message) && (
                     <div className="text-xs opacity-60 mt-1 flex items-center gap-1">
                       <Languages className="w-3 h-3" />
-                      <span>Translated to {preferredLanguage}</span>
+                      <span>
+                        {message.senderId === authUser._id 
+                          ? `Translated to ${preferredLanguage}`
+                          : `Translated to ${preferredLanguage}`
+                        }
+                      </span>
+                    </div>
+                  )}
+                  
+                  {/* Show translation loading indicator */}
+                  {translatingMessages.has(message._id) && (
+                    <div className="text-xs opacity-60 mt-1 flex items-center gap-1">
+                      <Languages className="w-3 h-3 animate-spin" />
+                      <span>Translating...</span>
                     </div>
                   )}
                 </div>

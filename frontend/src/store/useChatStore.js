@@ -46,6 +46,19 @@ export const useChatStore = create((set, get) => ({
     }
   },
 
+  // New function to update receiverText for existing messages
+  updateReceiverText: async (messageId, receiverId) => {
+    try {
+      const res = await axiosInstance.post("/messages/update-receiver-text", {
+        messageId,
+        receiverId
+      });
+      return res.data.receiverText;
+    } catch (error) {
+      console.error("Failed to update receiver text:", error);
+      throw error;
+    }
+  },
   subscribeToMessages: () => {
     const { selectedUser } = get();
     if (!selectedUser) return;
@@ -88,7 +101,7 @@ export const useChatStore = create((set, get) => ({
       const res = await axiosInstance.patch(`/messages/edit/${messageId}`, {text} );
       set((state) => ({
         messages: state.messages.map((message) =>
-          message._id === messageId ? { ...message, text:  res.data.editedmsg.text  } : message
+          message._id === messageId ? { ...message, commonText: res.data.editedmsg.commonText, senderText: "", receiverText: "" } : message
         ),
       }));
       toast.success(res.data.message);

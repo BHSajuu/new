@@ -12,12 +12,15 @@ const messageSchema = new mongoose.Schema(
       ref: "User",
       required: true,
     },
+    // Stores the text exactly as typed by the user
     commonText: {
       type: String,
     },
+    // Stores the message text in the sender's preferred language
     senderText:{
       type:String,
     },
+    // Stores the message text in the receiver's preferred language
     receiverText:{
       type:String,
     },

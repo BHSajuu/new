@@ -12,7 +12,7 @@ export const translateMessage = async (req, res) => {
       return res.status(400).json({ message: "Text and target language are required" });
     }
 
-    // Check user's daily translation limit
+    // Check user's daily translation limit (this is now mainly for manual translations)
     const user = await User.findById(userId);
     const today = new Date().toDateString();
     
@@ -41,7 +41,7 @@ export const translateMessage = async (req, res) => {
     const response = await result.response;
     const translatedText = response.text().trim();
 
-    // Increment user's daily translation count
+    // Increment user's daily translation count (for manual translations)
     user.dailyTranslationCount += 1;
     await user.save();
 
